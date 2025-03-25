@@ -17,7 +17,7 @@ jobs:
             runner: "ubuntu-22.04-arm"
             arch: "armhf"
             cache-key: "armhf-deps"
-      fail-fast: false  # Continue if one job fails
+      fail-fast: false
     permissions:
       contents: write
     steps:
@@ -38,7 +38,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.cache-key }}-sys-
 
-      - name: Install system dependencies
+      - name: Install core dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -49,8 +49,25 @@ jobs:
             udev \
             dosfstools \
             rsync \
-            xz-utils
+            xz-utils \
+            qemu-user-static \
+            binfmt-support
           sudo apt-get clean
+
+      - name: Run Kali build deps
+        run: |
+          cd kali-arm
+          sudo ./common.d/build_deps.sh
+          cd ..
+
+      - name: Setup QEMU
+        run: |
+          # For ARMHF builds, ensure proper QEMU support
+          if [ "${{ matrix.arch }}" == "armhf" ]; then
+            sudo apt-get install -y qemu-system-arm
+          fi
+          sudo update-binfmts --enable
+          sudo service binfmt-support start
 
       - name: Build image
         run: |
@@ -65,10 +82,10 @@ jobs:
           name: ${{ matrix.script }}-output-${{ matrix.arch }}
           path: kali-arm/images/
           retention-days: 3
-          if-no-files-found: warn  # Continue even if no files found
+          if-no-files-found: warn
 
       - name: Publish successful builds
-        if: success()  # Only run if previous steps succeeded
+        if: success()
         run: |
           mkdir -p images/
           cd kali-arm/images
