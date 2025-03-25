@@ -1,0 +1,23 @@
+name: Update Kali ARM Subtree Daily
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs at midnight UTC daily
+  workflow_dispatch:      # Allow manual triggers
+
+jobs:
+  update-subtree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for subtree history
+
+      - name: Update Subtree
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git remote add kali-arm https://gitlab.com/kalilinux/build-scripts/kali-arm.git || true
+          git fetch kali-arm main
+          git subtree pull --prefix=kali-arm kali-arm main --squash -m "chore: Update Kali ARM subtree"
+          git push
