@@ -8,42 +8,57 @@ on:
         required: false
         default: 'false'
 
-permissions:
-  contents: write
-
 jobs:
-  build:
+  trigger-update:
     runs-on: ubuntu-latest
+    steps:
+      - name: Trigger update workflow
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'update.yml',
+              ref: context.ref,
+            })
+
+  build:
+    needs: trigger-update
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up build environment
+      - name: Set up root environment
         run: |
           sudo apt-get update
           sudo apt-get install -y dpkg-dev tree
-          [ -d "kali-arm" ] || { echo "Error: kali-arm directory missing!"; exit 1; }
+          echo "CI_BUILD=1" >> $GITHUB_ENV
 
-      - name: Clean previous images (if requested)
+      - name: Clean previous images
         if: ${{ github.event.inputs.clean-build == 'true' }}
         run: |
-          rm -rf images/*
+          sudo rm -rf images/*
           git add images/
           git commit -m "Clean previous build images" || echo "No images to clean"
 
-      - name: Build images
+      - name: Build images (with root)
         run: |
           cd kali-arm
           for script in raspberry-pi-64-bit.sh raspberry-pi-zero-2-w.sh; do
             chmod +x $script
-            ./$script --desktop=none -s
+            echo "Building with $script..."
+            sudo ./$script --desktop=none -s
           done
 
       - name: Publish images
         run: |
           mkdir -p images
+          sudo chown -R $USER:$USER kali-arm/images/
           mv kali-arm/images/*.img images/
           
-          # Add build info
           echo "Build date: $(date)" > images/build-info.txt
           echo "Commit: $(git rev-parse HEAD)" >> images/build-info.txt
           
