@@ -1,48 +1,24 @@
 name: Build Kali ARM Images
 
 on:
-  workflow_dispatch:
-    inputs:
-      clean-build:
-        description: 'Perform clean build (remove previous images)'
-        required: false
-        default: 'false'
+  workflow_dispatch:  # Manual trigger only
 
 jobs:
-  trigger-update:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger update workflow
-        uses: actions/github-script@v6
-        with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'update.yml',
-              ref: context.ref,
-            })
-
   build:
-    needs: trigger-update
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up root environment
+      - name: Verify kali-arm exists
+        run: |
+          [ -d "kali-arm" ] || { echo "Error: kali-arm directory missing! Run update workflow first."; exit 1; }
+
+      - name: Set up environment
         run: |
           sudo apt-get update
           sudo apt-get install -y dpkg-dev tree
-          echo "CI_BUILD=1" >> $GITHUB_ENV
-
-      - name: Clean previous images
-        if: ${{ github.event.inputs.clean-build == 'true' }}
-        run: |
-          sudo rm -rf images/*
-          git add images/
-          git commit -m "Clean previous build images" || echo "No images to clean"
 
       - name: Build images (with root)
         run: |
