@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+chown -R kali:kali /home/kali/NetFang
+chmod +x /home/kali/NetFang/install.sh
+echo '[ -x ~/NetFang/install.sh ] && ~/NetFang/install.sh' >> /home/kali/.bashrc
