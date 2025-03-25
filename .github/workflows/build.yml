@@ -76,7 +76,6 @@ jobs:
           chmod +x ${{ matrix.script }}
           sudo --preserve-env=TERM ./${{ matrix.script }} --desktop=none -s || echo "Build failed, continuing for artifact collection"
 
-      # ✅ Added step to fix file permissions after build
       - name: Fix file permissions
         run: |
           sudo chown -R $(whoami):$(whoami) kali-arm/images
