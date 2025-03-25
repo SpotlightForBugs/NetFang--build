@@ -6,6 +6,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        script: ["raspberry-pi-64-bit.sh", "raspberry-pi-zero-2-w.sh"]
     permissions:
       contents: write
     steps:
@@ -15,49 +18,42 @@ jobs:
         run: |
           [ -d "kali-arm" ] || { echo "Error: kali-arm directory missing! Run update workflow first."; exit 1; }
 
-      - name: Install build dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          # Install both systemd-container and kali's specific dependencies
           sudo apt-get install -y systemd-container qemu-user-static
+
+      - name: Install Kali build dependencies
+        run: |
           cd kali-arm
           sudo ./common.d/build_deps.sh
           cd ..
 
-      - name: Set terminal environment
-        run: |
-          echo 'export TERM=xterm' >> ~/.bashrc
-
-      - name: Build images
+      - name: Build image
         run: |
           cd kali-arm
           export TERM=xterm
-          for script in raspberry-pi-64-bit.sh raspberry-pi-zero-2-w.sh; do
-            chmod +x $script
-            echo "Building with $script..."
-            sudo --preserve-env=TERM ./$script --desktop=none -s
-          done
+          chmod +x ${{ matrix.script }}
+          sudo --preserve-env=TERM ./${{ matrix.script }} --desktop=none -s
+          
+          # Move and rename the built image
+          mkdir -p ../images/
+          img_file=$(ls images/*.img | head -n 1)
+          new_name="$(basename "$img_file" .img)-$(date +%Y%m%d).img"
+          mv "$img_file" "../images/$new_name"
 
       - name: Publish images
+        if: matrix.script == 'raspberry-pi-zero-2-w.sh' # Only run once for both jobs
         run: |
-          mkdir -p images
-          sudo chown -R $USER:$USER kali-arm/images/
-          mv kali-arm/images/*.img images/
-          
-          echo "Build date: $(date)" > images/build-info.txt
-          echo "Commit: $(git rev-parse HEAD)" >> images/build-info.txt
-          echo "Dependencies:" >> images/build-info.txt
-          dpkg -l systemd-container qemu-user-static >> images/build-info.txt
-          
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add images/
           git commit -m "Add built images from $(date +%Y-%m-%d)"
           git push
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kali-images
+          name: ${{ matrix.script }}-image
           path: images/
           retention-days: 3
