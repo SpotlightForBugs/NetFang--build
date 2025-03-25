@@ -1,1 +1,0 @@
-sudo apt remove kali-desktop-* kali-wallpapers-* kali-undercover pipewire --allow-remove-essential -y
