@@ -1,7 +1,7 @@
 name: Build Kali ARM Images
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,14 +19,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y dpkg-dev tree
+          # Set default terminal type
+          echo 'export TERM=xterm' >> ~/.bashrc
 
-      - name: Build images (with root)
+      - name: Build images
         run: |
           cd kali-arm
+          export TERM=xterm  # Fix terminal issues
           for script in raspberry-pi-64-bit.sh raspberry-pi-zero-2-w.sh; do
             chmod +x $script
             echo "Building with $script..."
-            sudo ./$script --desktop=none -s
+            sudo --preserve-env=TERM ./$script --desktop=none -s
           done
 
       - name: Publish images
