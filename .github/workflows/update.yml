@@ -4,13 +4,14 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Daily updates at midnight UTC
   workflow_dispatch:
-
-permissions:
-  contents: write
+  repository_dispatch:
+    types: [trigger-update]
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,15 +22,12 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          # Add remote if not exists
           if ! git remote | grep -q kali-arm; then
             git remote add kali-arm https://gitlab.com/kalilinux/build-scripts/kali-arm.git
           fi
           
-          # Fetch updates
           git fetch kali-arm main
           
-          # First-time setup or update
           if [ ! -d "kali-arm" ]; then
             git merge --allow-unrelated-histories -s ours --no-commit kali-arm/main
             git read-tree --prefix=kali-arm/ -u kali-arm/main
