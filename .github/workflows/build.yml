@@ -15,17 +15,23 @@ jobs:
         run: |
           [ -d "kali-arm" ] || { echo "Error: kali-arm directory missing! Run update workflow first."; exit 1; }
 
-      - name: Set up environment
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev tree
-          # Set default terminal type
+          # Install both systemd-container and kali's specific dependencies
+          sudo apt-get install -y systemd-container qemu-user-static
+          cd kali-arm
+          sudo ./common.d/build_deps.sh
+          cd ..
+
+      - name: Set terminal environment
+        run: |
           echo 'export TERM=xterm' >> ~/.bashrc
 
       - name: Build images
         run: |
           cd kali-arm
-          export TERM=xterm  # Fix terminal issues
+          export TERM=xterm
           for script in raspberry-pi-64-bit.sh raspberry-pi-zero-2-w.sh; do
             chmod +x $script
             echo "Building with $script..."
@@ -40,6 +46,8 @@ jobs:
           
           echo "Build date: $(date)" > images/build-info.txt
           echo "Commit: $(git rev-parse HEAD)" >> images/build-info.txt
+          echo "Dependencies:" >> images/build-info.txt
+          dpkg -l systemd-container qemu-user-static >> images/build-info.txt
           
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
