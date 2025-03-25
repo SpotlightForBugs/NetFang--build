@@ -11,37 +11,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Initialize subtree
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          if ! git remote | grep -q kali-arm; then
+            git remote add kali-arm https://gitlab.com/kalilinux/build-scripts/kali-arm.git
+          fi
+          
+          git fetch kali-arm main
+          
+          if [ ! -d "kali-arm" ]; then
+            git merge --allow-unrelated-histories -s ours --no-commit kali-arm/main
+            git read-tree --prefix=kali-arm/ -u kali-arm/main
+            git commit -m "Add Kali ARM subtree"
+          else
+            git subtree pull --prefix=kali-arm kali-arm main --squash -m "Update Kali ARM subtree"
+          fi
 
       - name: Clone NetFang repo
         run: |
           git clone https://github.com/SpotlightForBugs/NetFang NetFang-repo
           [ -f NetFang-repo/install.sh ] || { echo "Error: install.sh missing!"; exit 1; }
 
-      - name: Update Kali Subtree
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git remote add kali-arm https://gitlab.com/kalilinux/build-scripts/kali-arm.git || true
-          git fetch kali-arm main
-          git subtree pull --prefix=kali-arm kali-arm main --squash -m "Update Kali ARM subtree"
-
       - name: Configure Build
         run: |
           cd kali-arm
           
-          # Keep only target scripts
           find . -maxdepth 1 -type f -name "*.sh" \
             ! -name "raspberry-pi-64-bit.sh" \
             ! -name "raspberry-pi-zero-2-w.sh" \
             -delete
           
-          # Create package directory structure
           mkdir -p netfang-files/DEBIAN netfang-files/home/kali/NetFang
-          
-          # Copy NetFang repo
           cp -r ../NetFang-repo/* netfang-files/home/kali/NetFang/
           
-          # Create control file for custom package
           cat > netfang-files/DEBIAN/control <<EOF
           Package: netfang-files
           Version: 1.0
@@ -50,7 +58,6 @@ jobs:
           Description: NetFang setup files
           EOF
           
-          # Create postinst script
           cat > netfang-files/DEBIAN/postinst <<'EOF'
           #!/bin/sh
           set -e
@@ -60,10 +67,9 @@ jobs:
           EOF
           chmod 755 netfang-files/DEBIAN/postinst
           
-          # Build the .deb package
+          sudo apt-get update && sudo apt-get install -y dpkg-dev
           dpkg-deb --build netfang-files
           
-          # Create builder.txt
           cat > builder.txt <<EOF
           hostname="NetFang"
           nameserver="1.1.1.1"
@@ -85,17 +91,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Install dpkg tools
-        run: sudo apt-get update && sudo apt-get install -y dpkg-dev
-      
       - name: Build Image
         run: |
           cd kali-arm
           chmod +x ${{ matrix.script }}
           ./${{ matrix.script }} --desktop=none -s
           
-      - name: Upload Artifact
+      - name: Publish Images to Repo Root
+        run: |
+          # Move images to root
+          mkdir -p ../images/
+          mv kali-arm/images/*.img ../images/
+          
+          # Commit and push
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add images/
+          git commit -m "Add latest built images"
+          git push
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.script }}-image
-          path: kali-arm/images/
+          path: images/
