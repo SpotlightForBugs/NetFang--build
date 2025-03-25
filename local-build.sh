@@ -20,13 +20,21 @@ if [ "$1" == "--update" ]; then
 fi
 
 # Verify dependencies
-command -v dpkg-deb >/dev/null 2>&1 || {
-  echo "Installing dependencies..."
-  apt-get update && apt-get install -y dpkg-dev
-}
+echo "Installing system dependencies..."
+apt-get update && apt-get install -y \
+  systemd-container \
+  qemu-user-static \
+  dpkg-dev \
+  tree
 
 # Verify kali-arm exists
 [ -d "kali-arm" ] || { echo "Error: kali-arm directory missing! Run with --update first."; exit 1; }
+
+# Install Kali-specific dependencies
+echo "Installing Kali build dependencies..."
+cd kali-arm
+./common.d/build_deps.sh
+cd ..
 
 # Build NetFang package
 echo "Building NetFang package..."
