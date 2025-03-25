@@ -12,9 +12,11 @@ jobs:
           - script: "raspberry-pi-64-bit.sh"
             runner: "ubuntu-24.04-arm"
             arch: "arm64"
+            cache-key: "arm64-deps"
           - script: "raspberry-pi-zero-2-w.sh"
             runner: "ubuntu-22.04-arm"
             arch: "armhf"
+            cache-key: "armhf-deps"
     permissions:
       contents: write
     steps:
@@ -24,7 +26,27 @@ jobs:
         run: |
           [ -d "kali-arm" ] || { echo "Error: kali-arm directory missing!"; exit 1; }
 
-      - name: Install dependencies
+      - name: Cache system dependencies
+        uses: actions/cache@v3
+        id: sys-cache
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt
+          key: ${{ runner.os }}-${{ matrix.cache-key }}-sys-${{ hashFiles('kali-arm/common.d/build_deps.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.cache-key }}-sys-
+
+      - name: Cache Kali dependencies
+        uses: actions/cache@v3
+        id: kali-cache
+        with:
+          path: kali-arm/deps
+          key: ${{ runner.os }}-${{ matrix.cache-key }}-kali-${{ hashFiles('kali-arm/common.d/build_deps.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.cache-key }}-kali-
+
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -36,8 +58,14 @@ jobs:
             dosfstools \
             rsync \
             xz-utils
+          sudo apt-get clean
+
+      - name: Install Kali build dependencies
+        run: |
           cd kali-arm
+          mkdir -p deps
           sudo ./common.d/build_deps.sh
+          touch deps/.installed
           cd ..
 
       - name: Build image
@@ -54,25 +82,25 @@ jobs:
           # Fix permissions first
           sudo chown -R $USER:$USER .
           
-          # Find the main image file (skip checksum files)
-          img_file=$(ls -t *.img* | grep -v '.sha256' | head -n 1)
-          [[ -z "$img_file" ]] && { echo "No image file found!"; exit 1; }
-          
-          # Handle compressed files
-          if [[ "$img_file" == *.xz ]]; then
+          # Find only the image file (exclude checksums)
+          img_file=$(ls -t *.img 2>/dev/null | head -n 1)
+          if [[ -z "$img_file" ]]; then
+            # If no .img file, look for .img.xz
+            img_file=$(ls -t *.img.xz 2>/dev/null | head -n 1)
+            [[ -z "$img_file" ]] && { echo "No image file found!"; exit 1; }
+            
+            # Decompress if needed
             echo "Decompressing $img_file..."
             unxz "$img_file"
             img_file="${img_file%.xz}"
           fi
           
-          # Prepare output directory
+          # Move the image file
           mkdir -p ../../images/
-          
-          # Move and rename with architecture
           base_name=$(basename "$img_file" .img)
           mv "$img_file" "../../images/${base_name}-${{ matrix.arch }}.img"
           
-          # Process checksum if exists
+          # Handle checksum if exists
           if [[ -f "${img_file}.sha256sum" ]]; then
             mv "${img_file}.sha256sum" "../../images/${base_name}-${{ matrix.arch }}.img.sha256"
           else
