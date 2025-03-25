@@ -1,11 +1,7 @@
 name: Update Kali ARM Build Scripts
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # Daily updates at midnight UTC
-  workflow_dispatch:
-  repository_dispatch:
-    types: [trigger-update]
+  workflow_dispatch:  # Manual trigger only
 
 jobs:
   update:
@@ -17,24 +13,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Initialize/Update subtree
+      - name: Delete existing kali-arm
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          
-          if ! git remote | grep -q kali-arm; then
-            git remote add kali-arm https://gitlab.com/kalilinux/build-scripts/kali-arm.git
-          fi
-          
-          git fetch kali-arm main
-          
-          if [ ! -d "kali-arm" ]; then
-            git merge --allow-unrelated-histories -s ours --no-commit kali-arm/main
-            git read-tree --prefix=kali-arm/ -u kali-arm/main
-            git commit -m "Add Kali ARM subtree"
-          else
-            git subtree pull --prefix=kali-arm kali-arm main --squash -m "Update Kali ARM subtree"
-          fi
+          [ -d "kali-arm" ] && git rm -r kali-arm
+          git commit -m "Remove old kali-arm" || echo "Nothing to remove"
 
-      - name: Push changes
-        run: git push
+      - name: Clone fresh copy
+        run: |
+          git clone --depth 1 https://gitlab.com/kalilinux/build-scripts/kali-arm.git kali-arm-temp
+          rm -rf kali-arm-temp/.git
+          mv kali-arm-temp kali-arm
+          git add kali-arm
+          git commit -m "Update kali-arm to latest version"
+          git push
