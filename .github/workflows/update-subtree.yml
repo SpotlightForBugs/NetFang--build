@@ -1,20 +1,20 @@
-name: Update Kali ARM Subtree Daily
+name: Update and Clean Kali ARM Subtree
 
 on:
   schedule:
     - cron: '0 0 * * *'  # Runs at midnight UTC daily
-  workflow_dispatch:      # Allow manual triggers
+  workflow_dispatch:
 
 permissions:
-  contents: write 
+  contents: write
 
 jobs:
-  update-subtree:
+  update-and-clean:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for subtree history
+          fetch-depth: 0
 
       - name: Update Subtree
         run: |
@@ -23,4 +23,17 @@ jobs:
           git remote add kali-arm https://gitlab.com/kalilinux/build-scripts/kali-arm.git || true
           git fetch kali-arm main
           git subtree pull --prefix=kali-arm kali-arm main --squash -m "chore: Update Kali ARM subtree"
-          git push
+
+      - name: Clean unwanted .sh files
+        run: |
+          cd kali-arm
+          # List all .sh files except raspberry-pi-zero-2-w.sh
+          find . -maxdepth 1 -type f -name "*.sh" ! -name "raspberry-pi-zero-2-w.sh" -print0 | xargs -0 rm -f
+          cd ..
+          git add kali-arm
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: Remove unwanted .sh files from kali-arm"
+            git push
+          fi
