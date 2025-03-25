@@ -7,11 +7,23 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# Update (optional)
+if [ "$1" == "--update" ]; then
+  echo "Force updating kali-arm directory..."
+  rm -rf kali-arm
+  git clone --depth 1 https://gitlab.com/kalilinux/build-scripts/kali-arm.git kali-arm
+  chown -R $SUDO_USER:$SUDO_USER kali-arm
+  exit 0
+fi
+
 # Verify dependencies
 command -v dpkg-deb >/dev/null 2>&1 || {
   echo "Installing dependencies..."
   apt-get update && apt-get install -y dpkg-dev
 }
+
+# Verify kali-arm exists
+[ -d "kali-arm" ] || { echo "Error: kali-arm directory missing! Run with --update first."; exit 1; }
 
 # Build NetFang package
 echo "Building NetFang package..."
@@ -47,4 +59,9 @@ for script in raspberry-pi-64-bit.sh raspberry-pi-zero-2-w.sh; do
 done
 
 # Organize output
-echo
+echo "Organizing output..."
+cd ..
+mkdir -p local-builds
+mv kali-arm/images/*.img local-builds/
+chown -R $SUDO_USER:$SUDO_USER local-builds/
+echo "Build complete. Images are in local-builds/"
