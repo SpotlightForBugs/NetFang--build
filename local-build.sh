@@ -7,6 +7,9 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# Set terminal type
+export TERM=xterm
+
 # Update (optional)
 if [ "$1" == "--update" ]; then
   echo "Force updating kali-arm directory..."
@@ -55,7 +58,7 @@ echo "Building Kali images..."
 for script in raspberry-pi-64-bit.sh raspberry-pi-zero-2-w.sh; do
   [ -f "$script" ] || { echo "Script $script missing!"; exit 1; }
   chmod +x "$script"
-  ./"$script" --desktop=none -s
+  TERM=xterm ./"$script" --desktop=none -s
 done
 
 # Organize output
