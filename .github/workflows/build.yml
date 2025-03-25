@@ -1,0 +1,61 @@
+name: Build Kali ARM Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      clean-build:
+        description: 'Perform clean build (remove previous images)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev tree
+          [ -d "kali-arm" ] || { echo "Error: kali-arm directory missing!"; exit 1; }
+
+      - name: Clean previous images (if requested)
+        if: ${{ github.event.inputs.clean-build == 'true' }}
+        run: |
+          rm -rf images/*
+          git add images/
+          git commit -m "Clean previous build images" || echo "No images to clean"
+
+      - name: Build images
+        run: |
+          cd kali-arm
+          for script in raspberry-pi-64-bit.sh raspberry-pi-zero-2-w.sh; do
+            chmod +x $script
+            ./$script --desktop=none -s
+          done
+
+      - name: Publish images
+        run: |
+          mkdir -p images
+          mv kali-arm/images/*.img images/
+          
+          # Add build info
+          echo "Build date: $(date)" > images/build-info.txt
+          echo "Commit: $(git rev-parse HEAD)" >> images/build-info.txt
+          
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add images/
+          git commit -m "Add built images from $(date +%Y-%m-%d)"
+          git push
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kali-images
+          path: images/
+          retention-days: 3
