@@ -1,2 +1,2 @@
 # NetFang--build
-The build scripts for the NetFang iso, 
+The build scripts for [NetFang](https://github.com/spotlightforbugs/NetFang)
