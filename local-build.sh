@@ -1,10 +1,16 @@
 #!/bin/bash
 set -e
 
+# Verify root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "This script must be run as root" >&2
+  exit 1
+fi
+
 # Verify dependencies
 command -v dpkg-deb >/dev/null 2>&1 || {
   echo "Installing dependencies..."
-  sudo apt-get update && sudo apt-get install -y dpkg-dev
+  apt-get update && apt-get install -y dpkg-dev
 }
 
 # Build NetFang package
@@ -41,8 +47,4 @@ for script in raspberry-pi-64-bit.sh raspberry-pi-zero-2-w.sh; do
 done
 
 # Organize output
-echo "Organizing output..."
-cd ..
-mkdir -p local-builds
-mv kali-arm/images/*.img local-builds/
-echo "Build complete. Images are in local-builds/"
+echo
