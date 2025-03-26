@@ -1,163 +1,245 @@
-#!/usr/bin/env bash
-#
-# Kali Linux ARM build-script for Raspberry Pi Zero W (32-bit)
-# Source: https://gitlab.com/kalilinux/build-scripts/kali-arm
-#
-# This is a supported device - which you can find pre-generated images on: https://www.kali.org/get-kali/
-# More information: https://www.kali.org/docs/arm/raspberry-pi-zero-w/
-#
+# .github/workflows/build-netfang-arm.yml
 
-# Hardware model
-hw_model=${hw_model:-"raspberry-pi-zero-w"}
+# Workflow name displayed on GitHub Actions tab
+name: Build NetFang ARM Images and Create Release
 
-# Architecture
-architecture=${architecture:-"armel"}
+on:
+  workflow_dispatch: # Allows manual triggering via the GitHub UI
 
-# Desktop manager (xfce, gnome, i3, kde, lxde, mate, e17 or none)
-desktop=${desktop:-"xfce"}
+jobs:
+  build:
+    # Runner OS and architecture for each build job
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # If true, cancels all other matrix jobs if one fails.
+      # If false, allows other jobs to continue even if one fails.
+      # The 'publish' job below still requires ALL build jobs to succeed.
+      fail-fast: true
+      matrix:
+        include:
+          # Defines the 64-bit build for RPi 3, 4, 5, Zero 2 W, etc.
+          - name: "raspberry-pi-64bit-incl-zero2w"
+            script: "raspberry-pi-64-bit.sh"
+            runner: "ubuntu-24.04-arm"
+            arch: "arm64"
+            cache-key: "arm64-deps" # Cache key specific to arm64 dependencies
+          # Defines the 32-bit build specifically for the original RPi Zero W
+          - name: "raspberry-pi-zero-w"
+            script: "raspberry-pi-zero-w.sh"
+            runner: "ubuntu-22.04-arm" # Runner suitable for armhf build
+            arch: "armhf"
+            cache-key: "armhf-deps" # Cache key specific to armhf dependencies
+    permissions:
+      contents: read # Read access needed for actions/checkout
 
-# Load default base_image configs
-source ./common.d/base_image.sh
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all history, might be needed by build scripts
 
-# Network configs
-basic_network
-#add_interface eth0
+      - name: Ensure kali-arm directory exists
+        # Creates the directory if it doesn't exist (e.g., during checkout)
+        run: mkdir -p kali-arm
 
-# Third stage
-cat <<EOF >>"${work_dir}"/third-stage
-status_stage3 'Copy rpi services'
-cp -p /bsp/services/rpi/*.service /etc/systemd/system/
+      - name: Verify kali-arm exists and scripts are present
+        # Fails the job if the required build directory or script is missing
+        run: |
+          if [ ! -d "kali-arm" ]; then
+            echo "Error: kali-arm directory missing! Ensure it's part of your repository.";
+            exit 1;
+          fi
+          if [ ! -f "kali-arm/${{ matrix.script }}" ]; then
+            echo "Error: Build script kali-arm/${{ matrix.script }} not found!";
+            exit 1;
+          fi
 
-status_stage3 'Script mode wlan monitor START/STOP'
-install -m755 /bsp/scripts/monstart /usr/bin/
-install -m755 /bsp/scripts/monstop /usr/bin/
+      - name: Cache system dependencies
+        # Caches apt package lists and downloaded packages to speed up builds
+        uses: actions/cache@v3
+        id: sys-cache
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt
+          # Key includes OS, arch, and hash of the build deps script
+          key: ${{ runner.os }}-${{ matrix.cache-key }}-sys-${{ hashFiles('kali-arm/common.d/build_deps.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.cache-key }}-sys-
 
-status_stage3 'Copy script for handling wpa_supplicant file'
-install -m755 /bsp/scripts/copy-user-wpasupplicant.sh /usr/bin/
+      - name: Install core dependencies
+        # Installs packages required by the kali-arm build scripts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            systemd-container \
+            debootstrap \
+            kpartx \
+            parted \
+            udev \
+            dosfstools \
+            rsync \
+            xz-utils \
+            qemu-user-static \
+            binfmt-support \
+            rename # Needed for the perl rename utility used later
+          sudo apt-get clean
 
-status_stage3 'Enable copying of user wpa_supplicant.conf file'
-systemctl enable copy-user-wpasupplicant
+      - name: Install and configure dbus
+        # Required by some system services during the build process
+        run: |
+          sudo apt-get install -y --no-install-recommends dbus
+          # Attempts to start dbus, ignoring failures common in container environments
+          sudo systemctl enable dbus || echo "Ignoring dbus enable failure"
+          sudo systemctl start dbus || echo "Ignoring dbus start failure"
 
-status_stage3 'Set default to cli since the system is slow and has low memory'
-systemctl set-default multi-user
+      - name: Run Kali build deps script (if exists)
+        # Executes the common dependency installation script from kali-arm
+        run: |
+          cd kali-arm
+          if [ -f "common.d/build_deps.sh" ]; then
+            sudo ./common.d/build_deps.sh
+          else
+            echo "Warning: common.d/build_deps.sh not found, skipping."
+          fi
+          cd ..
 
-status_stage3 'Enabling ssh by putting ssh or ssh.txt file in /boot'
-systemctl enable enable-ssh
+      - name: Setup QEMU
+        # Ensures QEMU static binaries and binfmt_misc are set up for cross-architecture builds
+        run: |
+          # Install qemu-user-static if building for armhf (might be needed)
+          if [ "${{ matrix.arch }}" == "armhf" ]; then
+            sudo apt-get install -y --no-install-recommends qemu-user-static
+          fi
+          # Enable QEMU binary formats
+          sudo update-binfmts --enable
+          # Start the binfmt support service if available
+          sudo systemctl is-active --quiet service binfmt-support && sudo systemctl start binfmt-support || echo "binfmt-support service not found or failed to start, continuing..."
 
-status_stage3 'Disable haveged daemon'
-systemctl disable haveged
+      - name: Build image (${{ matrix.name }})
+        # Executes the main build script for the specific Raspberry Pi model
+        run: |
+          cd kali-arm
+          export TERM=xterm # Set terminal type, sometimes needed by scripts
+          chmod +x ${{ matrix.script }}
+          # Run the build script with sudo, preserving TERM environment variable
+          # The '--desktop=none -s' arguments are passed to the script
+          sudo --preserve-env=TERM ./${{ matrix.script }} --desktop=none -s
+          cd ..
 
-status_stage3 'Fixup wireless-regdb signature'
-update-alternatives --set regulatory.db /lib/firmware/regulatory.db-upstream
+      - name: Fix file permissions before rename
+        # Changes ownership of build output files to the runner user
+        # Necessary for subsequent steps like renaming and uploading
+        run: |
+          if [ -d "kali-arm/images" ]; then
+            sudo chown -R $(whoami):$(whoami) kali-arm/images
+          else
+            echo "Error: kali-arm/images directory not found after build."
+            exit 1
+          fi
 
-status_stage3 'Build RaspberryPi utils'
-git clone --quiet https://github.com/raspberrypi/utils /usr/src/utils
-cd /usr/src/utils/
-# Without gcc/make, this will fail on slim images.
-apt-get install -y cmake device-tree-compiler libfdt-dev build-essential
-cmake .
-make
-make install
+      - name: Rename Output Files
+        # Renames the generated image and checksum files from 'kali*' to 'netfang*'
+        run: |
+          cd kali-arm/images
+          echo "Files before renaming:"
+          ls -la
+          # Use perl rename (prename) for robust substitution at the start of the filename
+          rename 's/^(kali-linux|kali)/netfang/' *.* || echo "Rename command failed or no files matched 'kali*' prefix."
+          echo "Files after renaming:"
+          ls -la
+          # Verify that renaming was successful
+          if ! ls netfang-* 1> /dev/null 2>&1; then
+            echo "Error: No files starting with 'netfang-' found after renaming attempt."
+            exit 1
+          fi
+          cd ../..
 
-status_stage3 'Install the kernel'
-eatmydata apt-get -y -q install raspi-firmware linux-image-rpi-v6 linux-headers-rpi-v6 brcmfmac-nexmon-dkms pi-bluetooth
+      - name: Upload image artifact
+        # Uploads the renamed build outputs as temporary artifacts
+        # These artifacts are used by the 'publish' job
+        uses: actions/upload-artifact@v4
+        with:
+          # Artifact name includes the matrix job name for identification
+          name: netfang-${{ matrix.name }}-image
+          # Specifies the files to upload (renamed image and checksum)
+          path: |
+            kali-arm/images/netfang-*.img.xz
+            kali-arm/images/netfang-*.sha256sum
+          # Short retention period as artifacts are only needed for the publish job
+          retention-days: 1
+          # Fail the job if no matching files are found to upload
+          if-no-files-found: error
 
-status_stage3 'Enable hciuart and bluetooth'
-systemctl enable hciuart
-systemctl enable bluetooth
+  publish:
+    # This job runs ONLY if ALL jobs in the 'build' matrix succeed.
+    needs: build
+    runs-on: ubuntu-latest # Runs on a standard GitHub-hosted runner
+    permissions:
+      # Required permission to create GitHub Releases and upload assets
+      contents: write
+    steps:
+      - name: Checkout code (optional)
+        # Can be useful if the release process needs access to repo files
+        uses: actions/checkout@v4
 
-status_stage3 'Set up cloud-init'
-install -m644 /bsp/cloudinit/user-data /boot/firmware
-install -m644 /bsp/cloudinit/meta-data /boot/firmware
-install -m644 /bsp/cloudinit/cloud.cfg /etc/cloud/
-# This snippet overrides config which sets the default user so punt it.
-rm /etc/cloud/cloud.cfg.d/20_kali.cfg
-mkdir -p /var/lib/cloud/seed/nocloud-net
-ln -s /boot/firmware/user-data /var/lib/cloud/seed/nocloud-net/user-data
-ln -s /boot/firmware/meta-data /var/lib/cloud/seed/nocloud-net/meta-data
-ln -s /boot/firmware/network-config /var/lib/cloud/seed/nocloud-net/network-config
-systemctl enable cloud-init-hotplugd.socket
-systemctl enable cloud-init-main.service
-# Attempt to work around a bug where the network-config filename is written
-# incorrectly if the file does not exit previously
-# https://github.com/raspberrypi/rpi-imager/issues/945
-touch /boot/firmware/network-config
-# HACK: Make sure /boot is also mounted before cloud-init-local starts
-sed -i -e 's|RequiresMountsFor=.*|RequiresMountsFor=/var/lib/cloud /boot/firmware|' /usr/lib/systemd/system/cloud-init-local.service
-# HACK: Disable rpi-resizerootfs service
-systemctl disable rpi-resizerootfs.service
-# New service to attempt to fix up the rpi-imager hardcoding
-systemctl enable rpi-imager-fixup.service
-EOF
+      - name: Download all build artifacts
+        # Downloads artifacts created by the 'build' jobs into subdirectories
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts/ # All artifacts will be placed here
 
-# Run third stage
-include third_stage
+      - name: Create release directory
+        # Creates a staging directory for the release assets
+        run: mkdir -p release-files
 
-# Firmware needed for the wifi
-cd "${work_dir}"
-status 'Clone Wi-Fi/Bluetooth firmware'
-git clone --quiet --depth 1 https://github.com/rpi-distro/firmware-nonfree
-cd firmware-nonfree/debian/config/brcm80211
-rsync -HPaz brcm "${work_dir}"/lib/firmware/
-rsync -HPaz cypress "${work_dir}"/lib/firmware/
-cd "${work_dir}"/lib/firmware/cypress
-ln -sf cyfmac43455-sdio-standard.bin cyfmac43455-sdio.bin
-rm -rf "${work_dir}"/firmware-nonfree
+      - name: Prepare files for release
+        # Copies all downloaded artifact files into a single directory for upload
+        run: |
+          echo "Looking for artifacts in all-artifacts/"
+          ls -lR all-artifacts/
+          # Copy contents of each artifact subdirectory into release-files
+          find all-artifacts/ -mindepth 2 -type f -print -exec cp {} release-files/ \;
+          echo "Files prepared for release (should start with netfang-):"
+          ls -la release-files/
+          # Verify that files were actually copied
+          if [ -z "$(ls -A release-files/)" ]; then
+             echo "No build artifacts found to release."
+             exit 1
+          fi
+          # Verify that the copied files have the expected 'netfang-' prefix
+          if ! ls release-files/netfang-* 1> /dev/null 2>&1; then
+            echo "Error: Release files do not start with 'netfang-' as expected."
+            exit 1
+          fi
 
-# bluetooth firmware
-wget -q 'https://github.com/RPi-Distro/bluez-firmware/raw/bookworm/debian/firmware/broadcom/BCM4345C0.hcd' -O "${work_dir}"/lib/firmware/brcm/BCM4345C0.hcd
+      - name: Generate random ID
+        # Creates a short random alphanumeric string for the release tag/name
+        id: random_id_generator
+        run: echo "random_id=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)" >> $GITHUB_OUTPUT
 
-cd "${repo_dir}/"
+      - name: Create GitHub Release
+        # Uses the softprops/action-gh-release action to create the release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          # Name of the release as it appears on GitHub
+          name: NetFang ARM Images build-${{ steps.random_id_generator.outputs.random_id }}
+          # Git tag associated with the release (must be unique)
+          tag_name: netfang-arm-${{ steps.random_id_generator.outputs.random_id }}
+          # Set to true to create a draft release instead of publishing immediately
+          draft: false
+          # Set to true to mark the release as a pre-release
+          prerelease: false
+          # Specifies the files to attach to the release as assets
+          files: release-files/*
+          # Markdown content for the release description body
+          body: |
+            NetFang ARM Images build ID: ${{ steps.random_id_generator.outputs.random_id }}
 
-# Clean system
-include clean_system
+            Includes images for:
+            - **Raspberry Pi (64-bit):** Suitable for RPi 3, 4, 5, Zero 2 W, and other 64-bit capable models. (From `netfang-raspberry-pi-64bit-incl-zero2w-image` artifact)
+            - **Raspberry Pi Zero W (32-bit):** Specifically for the original RPi Zero W (armhf). (From `netfang-raspberry-pi-zero-w-image` artifact)
 
-# Calculate the space to create the image and create
-make_image
-
-# Create the disk partitions
-status "Create the disk partitions"
-parted -s "${image_dir}/${image_name}.img" mklabel msdos
-parted -s "${image_dir}/${image_name}.img" mkpart primary fat32 1MiB "${bootsize}"MiB
-parted -s -a minimal "${image_dir}/${image_name}.img" mkpart primary "$fstype" "${bootsize}"MiB 100%
-
-# Set the partition variables
-make_loop
-
-# Create file systems
-mkfs_partitions
-
-# Make fstab
-make_fstab
-
-# Configure Raspberry Pi firmware
-include rpi_firmware
-
-sed -i -e 's/net.ifnames=0/net.ifnames=0 ds=nocloud/' "${work_dir}"/boot/firmware/cmdline.txt
-
-# RaspberryPi devices mount the first partition on /boot/firmware
-sed -i -e 's|/boot|/boot/firmware|' "${work_dir}"/etc/fstab
-
-# Create the dirs for the partitions and mount them
-status "Create the dirs for the partitions and mount them"
-mkdir -p "${base_dir}"/root/
-
-if [[ $fstype == ext4 ]]; then
-    mount -t ext4 -o noatime,data=writeback,barrier=0 "${rootp}" "${base_dir}"/root
-else
-    mount "${rootp}" "${base_dir}"/root
-fi
-
-mkdir -p "${base_dir}"/root/boot/firmware
-mount "${bootp}" "${base_dir}"/root/boot/firmware
-
-status "Rsyncing rootfs into image file"
-rsync -HPavz -q --exclude boot/firmware "${work_dir}"/ "${base_dir}"/root/
-sync
-
-status "Rsyncing rootfs into image file (/boot)"
-rsync -rtx -q "${work_dir}"/boot/firmware "${base_dir}"/root/boot
-sync
-
-# Load default finish_image configs
-include finish_image
+            **Note:** Checksum files (.sha256sum) should also be included with corresponding names.
+            Filenames have been changed from the default 'kali-' prefix to 'netfang-'.
