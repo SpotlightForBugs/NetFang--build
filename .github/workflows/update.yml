@@ -1,7 +1,9 @@
 name: Update Kali ARM Build Scripts
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:  # Manual trigger
+  schedule:
+    - cron: '0 0 * * *' 
 
 jobs:
   update:
