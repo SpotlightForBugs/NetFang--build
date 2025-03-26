@@ -1,0 +1,2 @@
+images/*.xz filter=lfs diff=lfs merge=lfs -text
+images/*.sha256sum filter=lfs diff=lfs merge=lfs -text
