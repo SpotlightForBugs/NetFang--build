@@ -17,14 +17,15 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          [ -d "kali-arm" ] && git rm -r kali-arm
+          [ -d "kali-arm" ] && git rm -r kali-armh
           git commit -m "Remove old kali-arm" || echo "Nothing to remove"
 
-      - name: Clone fresh copy
+      - name: Clone fresh copy and inject NetFang
         run: |
           git clone --depth 1 https://gitlab.com/kalilinux/build-scripts/kali-arm.git kali-arm-temp
           rm -rf kali-arm-temp/.git
           mv kali-arm-temp kali-arm
+          bash .github/workflows/inject-netfang.sh
           git add kali-arm
           git commit -m "Update kali-arm to latest version"
           git push
