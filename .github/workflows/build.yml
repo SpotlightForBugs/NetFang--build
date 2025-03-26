@@ -121,4 +121,5 @@ jobs:
           cd ../../
           git add images/
           git commit -m "Add ARM-built images from $(date +%Y-%m-%d)" || echo "No changes to commit"
+          git fetch && git pull
           git push origin master
