@@ -144,6 +144,13 @@ jobs:
           find . -type f ! -newermt "$(git log -1 --format=%cd --date=iso)" -delete
           cd ..
 
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git config --global pull.rebase false
+          git config --global pull.ff only
+
       - name: Commit and push changes
         run: |
           git add images/
