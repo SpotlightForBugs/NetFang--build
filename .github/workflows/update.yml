@@ -25,6 +25,9 @@ jobs:
           git clone --depth 1 https://gitlab.com/kalilinux/build-scripts/kali-arm.git kali-arm-temp
           rm -rf kali-arm-temp/.git
           mv kali-arm-temp kali-arm
+          pwd
+          ls
+          cat .github/workflows/inject-netfang.sh
           bash .github/workflows/inject-netfang.sh
           git add kali-arm
           git commit -m "Update kali-arm to latest version"
