@@ -63,8 +63,8 @@ jobs:
       - name: Install and configure dbus
         run: |
           sudo apt-get install -y dbus
-          sudo systemctl enable dbus
-          sudo systemctl start dbus
+          sudo systemctl enable dbus || echo "Ignoring dbus enable failure"
+          sudo systemctl start dbus || echo "Ignoring dbus start failure"
 
       - name: Run Kali build deps
         run: |
@@ -120,17 +120,33 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
 
-      - name: Publish successful builds
-        if: success()
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: raspberry-pi-64-bit.sh-output-arm64
+          path: images/
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: raspberry-pi-zero-2-w.sh-output-armhf
+          path: images/
+
+      - name: Clean up old files
         run: |
-          mkdir -p images/
-          cd kali-arm/images
-          for file in *; do
-            [ -f "$file" ] || continue
-            mv "$file" "../../images/${file%.*}-${{ matrix.arch }}.${file##*.}"
-          done
-          cd ../../
+          cd images
+          find . -type f ! -newermt "$(git log -1 --format=%cd --date=iso)" -delete
+          cd ..
+
+      - name: Commit and push changes
+        run: |
           git add images/
           git commit -m "Add ARM-built images from $(date +%Y-%m-%d)" || echo "No changes to commit"
-          git fetch && git pull
-          git push origin master
+          git fetch && git pull --rebase
+          git push origin master || git push --force origin master
