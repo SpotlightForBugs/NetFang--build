@@ -17,7 +17,7 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          [ -d "kali-arm" ] && git rm -r kali-armh
+          [ -d "kali-arm" ] && git rm -r kali-arm
           git commit -m "Remove old kali-arm" || echo "Nothing to remove"
 
       - name: Clone fresh copy and inject NetFang
