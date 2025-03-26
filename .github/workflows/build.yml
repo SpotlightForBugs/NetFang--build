@@ -23,6 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure kali-arm directory exists
+        run: mkdir -p kali-arm
+
       - name: Verify kali-arm exists
         run: |
           [ -d "kali-arm" ] || { echo "Error: kali-arm directory missing!"; exit 1; }
@@ -80,6 +83,19 @@ jobs:
         run: |
           sudo chown -R $(whoami):$(whoami) kali-arm/images
 
+      - name: Install Git LFS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-lfs
+          git lfs install
+
+      - name: Track large files with Git LFS
+        run: |
+          git lfs track "images/*.xz"
+          git lfs track "images/*.sha256sum"
+          git add .gitattributes
+          git commit -m "Track large files with Git LFS"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -102,4 +118,4 @@ jobs:
           git config --global user.email "actions@github.com"
           git add images/
           git commit -m "Add ARM-built images from $(date +%Y-%m-%d)" || echo "No changes to commit"
-          git push
+          git push origin master
